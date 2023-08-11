@@ -3,21 +3,21 @@ kind: Workspace
 metadata:
   organization: qa-stack-test
   tenant: platform-tests
-  name: bookinfo-ws-4
+  name: bookinfo-ws-3
 spec:
   namespaceSelector:
     names:
-      - '*/bookinfo-4'
+      - '*/bookinfo-3'
 ---
 apiVersion: gateway.tsb.tetrate.io/v2
 kind: Group
 metadata:
   organization: qa-stack-test
   tenant: platform-tests
-  workspace: bookinfo-ws-4
-  name: bookinfo-gw-4
+  workspace: bookinfo-ws-3
+  name: bookinfo-gw-3
 spec:
   namespaceSelector:
     names:
-      - '*/bookinfo-4'
+      - '*/bookinfo-3'
   configMode: BRIDGED

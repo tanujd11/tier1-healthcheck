@@ -1,14 +1,14 @@
 apiVersion: gateway.tsb.tetrate.io/v2
 kind: IngressGateway
 metadata:
-  name: bookinfo-gateway-4
-  group: bookinfo-gw-4
-  workspace: bookinfo-ws-4
+  name: bookinfo-gateway-3
+  group: bookinfo-gw-3
+  workspace: bookinfo-ws-3
   tenant: platform-tests
   organization: qa-stack-test
 spec:
   workloadSelector:
-    namespace: bookinfo-4
+    namespace: bookinfo-3
     labels:
       app: bookinfo-gateway
   http:
@@ -18,5 +18,5 @@ spec:
       routing:
         rules:
           - route:
-              host: bookinfo-4/productpage.bookinfo-4.svc.cluster.local
+              host: bookinfo-3/productpage.bookinfo-3.svc.cluster.local
               port: 9080

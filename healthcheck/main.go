@@ -17,8 +17,7 @@ func main() {
 
 	fmt.Println("envs: ", localRegion, localHealthCheckPort, remoteHealthCheckPort)
 	endpoints := map[string][]string{
-		"us-east-1":      {"10.150.0.8"},
-		"us-west-1":      {"10.150.0.9"},
+		"us-east-1":      {"10.150.0.5"},
 		"ap-southeast-1": {"10.153.65.75"},
 	}
 

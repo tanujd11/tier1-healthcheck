@@ -44,7 +44,7 @@ spec:
       patches:
       - path: spec.template.spec.containers[-1]
         value:
-          image: t1failovergw.azurecr.io/t1-healthcheck:test-4
+          image: t1failovergw.azurecr.io/t1-healthcheck:test-5
           env:
           - name: LOCAL_HEALTHCHECK_PORT
             value: "8080"
