@@ -1,0 +1,59 @@
+apiVersion: install.tetrate.io/v1alpha1
+kind: IngressGateway
+metadata:
+  name: bookinfo-gateway
+  namespace: bookinfo-4
+spec:
+  connectionDrainDuration: 5s
+  kubeSpec:
+    deployment:
+      hpaSpec:
+        maxReplicas: 10
+        metrics:
+        - resource:
+            name: cpu
+            target:
+              averageUtilization: 75
+              type: Utilization
+          type: Resource
+        minReplicas: 1
+      strategy:
+        rollingUpdate:
+        type: RollingUpdate
+    service:
+      annotations:
+        service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+      ports:
+      - name: tls-istio-mtls
+        port: 15443
+        targetPort: 15443
+      - name: http2
+        port: 80
+        targetPort: 8080
+      - name: https
+        port: 443
+        targetPort: 8443
+      - name: http-t1-healthcheck
+        port: 9443
+        targetPort: 9443
+      type: LoadBalancer
+    overlays:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: bookinfo-gateway
+      patches:
+      - path: spec.template.spec.containers[-1]
+        value:
+          image: t1failovergw.azurecr.io/t1-healthcheck:test-4
+          env:
+          - name: LOCAL_HEALTHCHECK_PORT
+            value: "8080"
+          - name: REMOTE_HEALTHCHECK_PORT
+            value: "80"
+          - name: REGION
+            value: "us-east-1"
+          name: t1-healthcheck
+      - path: spec.template.spec.imagePullSecrets
+        value:
+        - name: regcred
+  revision: default

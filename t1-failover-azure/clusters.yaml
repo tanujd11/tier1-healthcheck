@@ -1,0 +1,40 @@
+apiVersion: api.tsb.tetrate.io/v2
+kind: Cluster
+metadata:
+  name: aks-e-t1-i1
+  organization: qa-stack-test
+spec:
+  network: global
+  tier1Cluster: true
+  tokenTtl: 315360000s
+---
+apiVersion: api.tsb.tetrate.io/v2
+kind: Cluster
+metadata:
+  name: aks-standalone
+  organization: qa-stack-test
+spec:
+  network: global
+  tier1Cluster: true
+  tokenTtl: 315360000s
+---
+apiVersion: api.tsb.tetrate.io/v2
+kind: Cluster
+metadata:
+  name: aks-e-t2-i2
+  organization: qa-stack-test
+spec:
+  network: global
+  tier1Cluster: false
+  tokenTtl: 315360000s
+---
+apiVersion: api.tsb.tetrate.io/v2
+kind: Cluster
+metadata:
+  name: aks-e-t2-i1
+  organization: qa-stack-test
+spec:
+  network: global
+  tier1Cluster: false
+  tokenTtl: 315360000s
+
