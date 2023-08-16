@@ -2,15 +2,15 @@ apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
 metadata:
   name: t1-healthcheck
-  namespace: bookinfo-3
+  namespace: t1-bookinfo
 spec:
   workloadSelector:
     labels:
-      app: bookinfo-gateway
+      app: tier1-gateway
   configPatches:
   - applyTo: LISTENER
     match:
-      context: SIDECAR_INBOUND  
+      context: SIDECAR_INBOUND
     patch:
       operation: ADD
       value:
@@ -24,7 +24,7 @@ spec:
         - filters:
           - name: envoy.filters.network.http_connection_manager
             config:
-              stat_prefix: ingress_proxy
+              stat_prefix: t1_healthcheck
               route_config:
                 name: t1-healthcheck
                 virtual_hosts:

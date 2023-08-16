@@ -52,6 +52,10 @@ spec:
             value: "80"
           - name: REGION
             value: "ap-southeast-1"
+          - name: RETRIES
+            value: "3"
+          - name: HEALTH_CHECK_INTERVAL
+            value: "2s"
           name: t1-healthcheck
       - path: spec.template.spec.imagePullSecrets
         value:
