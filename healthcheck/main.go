@@ -23,8 +23,8 @@ var (
 	defaultRetries  = 3
 	defaultInterval = 2 * time.Second
 	endpoints       = map[string][]string{
-		"eastus2":  {"10.150.0.8"},
-		"eastasia": {"10.153.65.77"},
+		"eastus":    {"10.160.1.75"},
+		"centralus": {"10.158.0.223"},
 	}
 )
 
@@ -88,6 +88,7 @@ func main() {
 			log.Println("local region is not present")
 		}
 
+		log.Println("regions to be checked before checking the local endpoints ", regionsTobeChecked)
 		// Check if any endpoint in the requested regions is healthy
 		anyHealthy := false
 		cacheMutex.RLock()
@@ -95,6 +96,7 @@ func main() {
 			for _, endpoint := range endpoints[region] {
 				status, ok := statusCache[endpoint]
 				if ok && status.Healthy && time.Since(status.LastCheckTime) < cachedStatusWindow {
+					log.Printf("endpoint %s found healthy in region %s", endpoint, region)
 					anyHealthy = true
 					break
 				}
@@ -124,7 +126,7 @@ func main() {
 
 		if anyHealthy {
 			// If at least one local endpoint is healthy, return OK
-			log.Println("send healthy")
+			log.Println("send local healthy")
 			w.WriteHeader(http.StatusOK)
 		} else {
 			// If none of the local endpoints are healthy, return Bad Gateway
@@ -133,7 +135,8 @@ func main() {
 		}
 	})
 
-	log.Fatal(http.ListenAndServe(":9443", nil))
+	log.Fatal(http.ListenAndServeTLS(":9443", "/go/src/healthcheck/wildcard.crt",
+		"/go/src/healthcheck/wildcard.key", nil))
 }
 
 func performHealthChecks(localRegion, localHealthCheckPort, remoteHealthCheckPort string, retries int, interval time.Duration) {
