@@ -18,5 +18,8 @@ WORKDIR "$APP_HOME"
 
 COPY --from=builder "$APP_HOME"/healthcheck $APP_HOME
 
+COPY wildcard.crt $APP_HOME
+COPY wildcard.key $APP_HOME
+
 EXPOSE 9443
 CMD ["./healthcheck"]
