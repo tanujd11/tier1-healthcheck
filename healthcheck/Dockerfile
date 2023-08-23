@@ -20,6 +20,7 @@ COPY --from=builder "$APP_HOME"/healthcheck $APP_HOME
 
 COPY wildcard.crt $APP_HOME
 COPY wildcard.key $APP_HOME
+COPY wildcard-ca.crt $APP_HOME
 
 EXPOSE 9443
 CMD ["./healthcheck"]

@@ -1,10 +1,14 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"fmt"
+	"io/ioutil"
 	"log"
-	"net"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,8 +34,6 @@ var (
 
 func main() {
 	localRegion := os.Getenv("REGION")
-	localHealthCheckPort := os.Getenv("LOCAL_HEALTHCHECK_PORT")
-	remoteHealthCheckPort := os.Getenv("REMOTE_HEALTHCHECK_PORT")
 	retriesEnv := os.Getenv("RETRIES")
 	intervalEnv := os.Getenv("HEALTH_CHECK_INTERVAL")
 
@@ -61,7 +63,7 @@ func main() {
 	statusCache = make(map[string]EndpointStatus)
 
 	// Start a goroutine to perform asynchronous health checks
-	go performHealthChecks(localRegion, localHealthCheckPort, remoteHealthCheckPort, retries, interval)
+	go performHealthChecks(localRegion, retries, interval)
 
 	http.HandleFunc("/health/", func(w http.ResponseWriter, r *http.Request) {
 		regions := strings.Split(strings.TrimPrefix(r.URL.Path, "/health/"), "/")
@@ -88,6 +90,9 @@ func main() {
 			log.Println("local region is not present")
 		}
 
+		// /east/central/west
+		// if local is central -> [east]
+		// if local is eastasia -> [east, central, west]
 		log.Println("regions to be checked before checking the local endpoints ", regionsTobeChecked)
 		// Check if any endpoint in the requested regions is healthy
 		anyHealthy := false
@@ -139,27 +144,60 @@ func main() {
 		"/go/src/healthcheck/wildcard.key", nil))
 }
 
-func performHealthChecks(localRegion, localHealthCheckPort, remoteHealthCheckPort string, retries int, interval time.Duration) {
-	d := net.Dialer{Timeout: 3 * time.Second}
+func performHealthChecks(localRegion string, retries int, interval time.Duration) {
+	caCert, err := ioutil.ReadFile("/go/src/healthcheck/wildcard-ca.crt")
+	if err != nil {
+		log.Fatalf("Failed to read CA certificate: %v", err)
+	}
+
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+
+	tlsConfig := &tls.Config{
+		//RootCAs: caCertPool,
+		InsecureSkipVerify: true,
+	}
+
+	client := http.Client{
+		Timeout: 3 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+	}
 
 	for {
 		// Perform health checks for each endpoint asynchronously
 		for region, endpoints := range endpoints {
 			go func(region string, endpoints []string) {
 				for _, endpoint := range endpoints {
-					address := endpoint + ":" + remoteHealthCheckPort
+					// Prepare the URL for health check
+					var url string
 					if region == localRegion {
-						address = "127.0.0.1:" + localHealthCheckPort
+						// Local region health check
+						epStatus := getLocalClusterHealth(localRegion)
+						cacheMutex.Lock()
+						status := statusCache[endpoint]
+						status.Healthy = epStatus
+						if epStatus {
+							status.Retries = 0
+							status.LastCheckTime = time.Now()
+						}
+						statusCache[endpoint] = status
+						cacheMutex.Unlock()
+						continue
 					}
+					// Remote region health check
+					url = fmt.Sprintf("https://%s:9443/health/%s", endpoint, region)
 
 					// Perform retries
 					for i := 0; i <= retries; i++ {
-						_, err := d.Dial("tcp", address)
-
+						resp, err := client.Get(url)
+						log.Println("GET RESPONSE", resp, err)
 						// Update the status in the cache
 						cacheMutex.Lock()
 						status := statusCache[endpoint]
-						if err == nil {
+						if err == nil && resp.StatusCode == http.StatusOK {
+							log.Println("Ok")
 							// If healthy, reset retries and update timestamp
 							status.Healthy = true
 							status.Retries = 0
@@ -168,6 +206,7 @@ func performHealthChecks(localRegion, localHealthCheckPort, remoteHealthCheckPor
 							// If unhealthy, increase retries and mark as unhealthy after a certain number of retries
 							status.Retries++
 							if status.Retries >= retries {
+								log.Println("Not Ok")
 								status.Healthy = false
 							}
 						}
@@ -188,4 +227,32 @@ func performHealthChecks(localRegion, localHealthCheckPort, remoteHealthCheckPor
 		log.Printf("Perform health checks at the specified interval %v", interval)
 		time.Sleep(interval)
 	}
+}
+
+func getLocalClusterHealth(region string) bool {
+	resp, err := http.Get("http://localhost:15000/clusters")
+	if err != nil {
+		fmt.Println("Error sending GET request:", err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println("Error reading response body:", err)
+		return false
+	}
+	lines := strings.Split(string(body), "\n")
+
+	re := regexp.MustCompile(region)
+
+	count := 0
+	for _, line := range lines {
+		if re.MatchString(line) {
+			fmt.Println(line)
+			count++
+		}
+	}
+	fmt.Println("Number of lines with both matches:", count)
+	return count != 0
 }
