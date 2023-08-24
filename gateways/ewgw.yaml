@@ -1,0 +1,32 @@
+apiVersion: install.tetrate.io/v1alpha1
+kind: IngressGateway
+metadata:
+  name: eastwest-gateway
+  namespace: eastwest
+spec:
+  connectionDrainDuration: 5s
+  eastWestOnly: true
+  kubeSpec:
+    deployment:
+      hpaSpec:
+        maxReplicas: 10
+        metrics:
+        - resource:
+            name: cpu
+            target:
+              averageUtilization: 75
+              type: Utilization
+          type: Resource
+      strategy:
+        rollingUpdate:
+          maxUnavailable: 0
+        type: RollingUpdate
+    service:
+      annotations:
+        service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+      ports:
+      - name: tls-istio-mtls
+        port: 15443
+        targetPort: 15443
+      type: LoadBalancer
+  revision: stable

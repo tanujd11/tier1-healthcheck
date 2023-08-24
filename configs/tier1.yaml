@@ -1,0 +1,260 @@
+---
+apiVersion: rbac.tsb.tetrate.io/v2
+kind: AccessBindings
+metadata:
+  fqn: organizations/qa-stack-test/tenants/tier1/workspaces/tier1-ws-centralus
+spec:
+  allow:
+  - role: rbac/admin
+    subjects:
+    - serviceAccount: admin
+
+---
+apiVersion: api.tsb.tetrate.io/v2
+kind: Workspace
+metadata:
+  description: tier1-ws-eastus
+  displayName: tier1-ws-eastus
+  name: tier1-ws
+  organization: qa-stack-test
+  resourceVersion: '"vnuc66uJPP0="'
+  tenant: tier1
+spec:
+  description: tier1-ws-eastus
+  displayName: tier1-ws-eastus
+  etag: '"vnuc66uJPP0="'
+  fqn: organizations/qa-stack-test/tenants/tier1/workspaces/tier1-ws
+  namespaceSelector:
+    names:
+    - t1-cluster-us-east/t1-bookinfo
+  privileged: false
+
+---
+apiVersion: rbac.tsb.tetrate.io/v2
+kind: AccessBindings
+metadata:
+  fqn: organizations/qa-stack-test/tenants/tier1/workspaces/tier1-ws
+spec:
+  allow:
+  - role: rbac/admin
+    subjects:
+    - serviceAccount: admin
+
+---
+apiVersion: api.tsb.tetrate.io/v2
+kind: Workspace
+metadata:
+  description: tier1-ws-centralus
+  displayName: tier1-ws-centralus
+  name: tier1-ws-centralus
+  organization: qa-stack-test
+  resourceVersion: '"jLYTgnPWw28="'
+  tenant: tier1
+spec:
+  description: tier1-ws-centralus
+  displayName: tier1-ws-centralus
+  etag: '"jLYTgnPWw28="'
+  fqn: organizations/qa-stack-test/tenants/tier1/workspaces/tier1-ws-centralus
+  namespaceSelector:
+    names:
+    - t1-cluster-us-central/t1-bookinfo
+  privileged: false
+
+---
+apiVersion: rbac.tsb.tetrate.io/v2
+kind: AccessBindings
+metadata:
+  fqn: organizations/qa-stack-test/tenants/tier1/workspaces/tier1-ws-centralus/gatewaygroups/tier1-gw-group-centralus
+spec:
+  allow:
+  - role: rbac/admin
+    subjects:
+    - serviceAccount: admin
+
+---
+apiVersion: gateway.tsb.tetrate.io/v2
+kind: Group
+metadata:
+  description: tier1-gw-group-centralus
+  displayName: tier1-gw-group-centralus
+  name: tier1-gw-group-centralus
+  organization: qa-stack-test
+  resourceVersion: '"HzLNErzs64g="'
+  tenant: tier1
+  workspace: tier1-ws-centralus
+spec:
+  description: tier1-gw-group-centralus
+  displayName: tier1-gw-group-centralus
+  etag: '"HzLNErzs64g="'
+  fqn: organizations/qa-stack-test/tenants/tier1/workspaces/tier1-ws-centralus/gatewaygroups/tier1-gw-group-centralus
+  namespaceSelector:
+    names:
+    - t1-cluster-us-central/t1-bookinfo
+
+---
+apiVersion: rbac.tsb.tetrate.io/v2
+kind: AccessBindings
+metadata:
+  fqn: organizations/qa-stack-test/tenants/tier1/workspaces/tier1-ws/settings/default-setting
+spec:
+  allow:
+  - role: rbac/admin
+    subjects:
+    - serviceAccount: admin
+
+---
+apiVersion: gateway.tsb.tetrate.io/v2
+kind: Group
+metadata:
+  description: tier1-gw-group
+  displayName: tier1-gw-group
+  name: tier1-gw-group
+  organization: qa-stack-test
+  resourceVersion: '"3y580awtAkQ="'
+  tenant: tier1
+  workspace: tier1-ws
+spec:
+  description: tier1-gw-group
+  displayName: tier1-gw-group
+  etag: '"3y580awtAkQ="'
+  fqn: organizations/qa-stack-test/tenants/tier1/workspaces/tier1-ws/gatewaygroups/tier1-gw-group
+  namespaceSelector:
+    names:
+    - t1-cluster-us-east/t1-bookinfo
+
+---
+apiVersion: api.tsb.tetrate.io/v2
+kind: WorkspaceSetting
+metadata:
+  displayName: default-setting
+  name: default-setting
+  organization: qa-stack-test
+  resourceVersion: '"9VGrGRDQL9c="'
+  tenant: tier1
+  workspace: tier1-ws
+spec:
+  defaultSecuritySetting:
+    displayName: default-setting
+  defaultTrafficSetting:
+    displayName: default-setting
+    resilience:
+      circuitBreakerSensitivity: LOW
+      httpRetries:
+        attempts: 30
+        perTryTimeout: 5s
+        retryOn: 5xx
+  displayName: default-setting
+  etag: '"9VGrGRDQL9c="'
+  fqn: organizations/qa-stack-test/tenants/tier1/workspaces/tier1-ws/settings/default-setting
+
+---
+apiVersion: rbac.tsb.tetrate.io/v2
+kind: AccessBindings
+metadata:
+  fqn: organizations/qa-stack-test/tenants/tier1/workspaces/tier1-ws/gatewaygroups/tier1-gw-group
+spec:
+  allow:
+  - role: rbac/admin
+    subjects:
+    - serviceAccount: admin
+
+---
+apiVersion: rbac.tsb.tetrate.io/v2
+kind: AccessBindings
+metadata:
+  fqn: organizations/qa-stack-test/tenants/tier1/workspaces/tier1-ws-centralus/gatewaygroups/tier1-gw-group-centralus/tier1gateways/default-tier1gateway
+spec:
+  allow:
+  - role: rbac/admin
+    subjects:
+    - serviceAccount: admin
+
+---
+apiVersion: gateway.tsb.tetrate.io/v2
+kind: Tier1Gateway
+metadata:
+  displayName: default-tier1gateway
+  group: tier1-gw-group-centralus
+  name: default-tier1gateway
+  organization: qa-stack-test
+  resourceVersion: '"z1WNYGinaCM="'
+  tenant: tier1
+  workspace: tier1-ws-centralus
+spec:
+  displayName: default-tier1gateway
+  etag: '"z1WNYGinaCM="'
+  extension:
+  - config:
+      header: region
+      value: centralus
+    fqn: organizations/qa-stack-test/extensions/wasm-ext1
+  externalServers:
+  - hostname: bookinfo.tetrate.com
+    name: https
+    port: 443
+    tls:
+      mode: SIMPLE
+      secretName: bookinfo-cert
+  - hostname: httpbin.tetrate.com
+    name: httpbin
+    port: 443
+    tls:
+      mode: SIMPLE
+      secretName: httpbin-cert
+  fqn: organizations/qa-stack-test/tenants/tier1/workspaces/tier1-ws-centralus/gatewaygroups/tier1-gw-group-centralus/tier1gateways/default-tier1gateway
+  workloadSelector:
+    labels:
+      app: tier1-gateway
+    namespace: t1-bookinfo
+
+---
+apiVersion: rbac.tsb.tetrate.io/v2
+kind: AccessBindings
+metadata:
+  fqn: organizations/qa-stack-test/tenants/tier1/workspaces/tier1-ws/gatewaygroups/tier1-gw-group/tier1gateways/tier1-gateway
+spec:
+  allow:
+  - role: rbac/admin
+    subjects:
+    - serviceAccount: admin
+
+---
+apiVersion: gateway.tsb.tetrate.io/v2
+kind: Tier1Gateway
+metadata:
+  description: tier1-gateway
+  displayName: tier1-gateway
+  group: tier1-gw-group
+  name: tier1-gateway
+  organization: qa-stack-test
+  resourceVersion: '"8iqTtAOLTfA="'
+  tenant: tier1
+  workspace: tier1-ws
+spec:
+  description: tier1-gateway
+  displayName: tier1-gateway
+  etag: '"8iqTtAOLTfA="'
+  extension:
+  - config:
+      header: region
+      value: eastus
+    fqn: organizations/qa-stack-test/extensions/wasm-ext1
+  externalServers:
+  - hostname: bookinfo.tetrate.com
+    name: https
+    port: 443
+    tls:
+      mode: SIMPLE
+      secretName: bookinfo-cert
+  - hostname: httpbin.tetrate.com
+    name: httpbin
+    port: 443
+    tls:
+      mode: SIMPLE
+      secretName: httpbin-cert
+  fqn: organizations/qa-stack-test/tenants/tier1/workspaces/tier1-ws/gatewaygroups/tier1-gw-group/tier1gateways/tier1-gateway
+  workloadSelector:
+    labels:
+      app: tier1-gateway
+    namespace: t1-bookinfo
+
