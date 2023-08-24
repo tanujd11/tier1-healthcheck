@@ -2,7 +2,7 @@ apiVersion: install.tetrate.io/v1alpha1
 kind: IngressGateway
 metadata:
   name: bookinfo-gateway
-  namespace: bookinfo-3
+  namespace: bookinfo
 spec:
   connectionDrainDuration: 5s
   kubeSpec:
@@ -19,6 +19,7 @@ spec:
         minReplicas: 1
       strategy:
         rollingUpdate:
+          maxUnavailable: 0
         type: RollingUpdate
     service:
       annotations:
@@ -37,28 +38,4 @@ spec:
         port: 9443
         targetPort: 9443
       type: LoadBalancer
-    overlays:
-    - apiVersion: apps/v1
-      kind: Deployment
-      name: bookinfo-gateway
-      patches:
-      - path: spec.template.spec.containers[-1]
-        value:
-          image: t1failovergw.azurecr.io/t1-healthcheck:test-5
-          env:
-          - name: LOCAL_HEALTHCHECK_PORT
-            value: "8080"
-          - name: REMOTE_HEALTHCHECK_PORT
-            value: "80"
-          - name: REGION
-            value: "ap-southeast-1"
-          - name: RETRIES
-            value: "3"
-          - name: HEALTH_CHECK_INTERVAL
-            value: "2s"
-          name: t1-healthcheck
-      - path: spec.template.spec.imagePullSecrets
-        value:
-        - name: regcred
   revision: default
-

@@ -1,8 +1,8 @@
 apiVersion: install.tetrate.io/v1alpha1
-kind: IngressGateway
+kind: Tier1Gateway
 metadata:
-  name: bookinfo-gateway
-  namespace: bookinfo-4
+  name: tier1-gateway
+  namespace: t1-bookinfo
 spec:
   connectionDrainDuration: 5s
   kubeSpec:
@@ -19,7 +19,31 @@ spec:
         minReplicas: 1
       strategy:
         rollingUpdate:
+          maxUnavailable: 0
         type: RollingUpdate
+    overlays:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: tier1-gateway
+      patches:
+      - path: spec.template.spec.containers[-1]
+        value:
+          env:
+          - name: LOCAL_HEALTHCHECK_PORT
+            value: "8443"
+          - name: REMOTE_HEALTHCHECK_PORT
+            value: "443"
+          - name: REGION
+            value: centralus
+          - name: RETRIES
+            value: "3"
+          - name: HEALTH_CHECK_INTERVAL
+            value: 2s
+          image: t1failovergw.azurecr.io/t1-healthcheck:srini-hs-image13
+          name: t1-healthcheck
+      - path: spec.template.spec.imagePullSecrets
+        value:
+        - name: regcred
     service:
       annotations:
         service.beta.kubernetes.io/azure-load-balancer-internal: "true"
@@ -37,27 +61,4 @@ spec:
         port: 9443
         targetPort: 9443
       type: LoadBalancer
-    overlays:
-    - apiVersion: apps/v1
-      kind: Deployment
-      name: bookinfo-gateway
-      patches:
-      - path: spec.template.spec.containers[-1]
-        value:
-          image: t1failovergw.azurecr.io/t1-healthcheck:test-5
-          env:
-          - name: LOCAL_HEALTHCHECK_PORT
-            value: "8080"
-          - name: REMOTE_HEALTHCHECK_PORT
-            value: "80"
-          - name: REGION
-            value: "us-east-1"
-          - name: RETRIES
-            value: "3"
-          - name: HEALTH_CHECK_INTERVAL
-            value: "2s"
-          name: t1-healthcheck
-      - path: spec.template.spec.imagePullSecrets
-        value:
-        - name: regcred
   revision: default

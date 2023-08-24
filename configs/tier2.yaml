@@ -1,0 +1,161 @@
+---
+apiVersion: rbac.tsb.tetrate.io/v2
+kind: AccessBindings
+metadata:
+  fqn: organizations/qa-stack-test/tenants/tier2/workspaces/tier2-ws
+spec:
+  allow:
+  - role: rbac/admin
+    subjects:
+    - serviceAccount: admin
+
+---
+apiVersion: api.tsb.tetrate.io/v2
+kind: Workspace
+metadata:
+  description: tier2-ws
+  displayName: tier2-ws
+  name: tier2-ws
+  organization: qa-stack-test
+  resourceVersion: '"06z/opKaY/Q="'
+  tenant: tier2
+spec:
+  description: tier2-ws
+  displayName: tier2-ws
+  etag: '"06z/opKaY/Q="'
+  fqn: organizations/qa-stack-test/tenants/tier2/workspaces/tier2-ws
+  namespaceSelector:
+    names:
+    - t2-centralus/bookinfo
+    - t2-centralus/httpbin
+    - t2-eastus/httpbin
+    - t2-eastus/bookinfo
+  privileged: false
+
+---
+apiVersion: rbac.tsb.tetrate.io/v2
+kind: AccessBindings
+metadata:
+  fqn: organizations/qa-stack-test/tenants/tier2/workspaces/tier2-ws/gatewaygroups/tier2-gw-group
+spec:
+  allow:
+  - role: rbac/admin
+    subjects:
+    - serviceAccount: admin
+
+---
+apiVersion: gateway.tsb.tetrate.io/v2
+kind: Group
+metadata:
+  description: tier2-gw-group
+  displayName: tier2-gw-group
+  name: tier2-gw-group
+  organization: qa-stack-test
+  resourceVersion: '"PRC6iP31om4="'
+  tenant: tier2
+  workspace: tier2-ws
+spec:
+  description: tier2-gw-group
+  displayName: tier2-gw-group
+  etag: '"PRC6iP31om4="'
+  fqn: organizations/qa-stack-test/tenants/tier2/workspaces/tier2-ws/gatewaygroups/tier2-gw-group
+  namespaceSelector:
+    names:
+    - t2-centralus/bookinfo
+    - t2-centralus/httpbin
+    - t2-eastus/httpbin
+    - t2-eastus/bookinfo
+
+---
+apiVersion: rbac.tsb.tetrate.io/v2
+kind: AccessBindings
+metadata:
+  fqn: organizations/qa-stack-test/tenants/tier2/workspaces/tier2-ws/gatewaygroups/tier2-gw-group/ingressgateways/t2-gateway
+spec:
+  allow:
+  - role: rbac/admin
+    subjects:
+    - serviceAccount: admin
+
+---
+apiVersion: gateway.tsb.tetrate.io/v2
+kind: IngressGateway
+metadata:
+  description: httpbin-gateway
+  displayName: httpbin-gateway
+  group: tier2-gw-group
+  name: httpbin-gateway
+  organization: qa-stack-test
+  resourceVersion: '"vaG291S52jc="'
+  tenant: tier2
+  workspace: tier2-ws
+spec:
+  description: httpbin-gateway
+  displayName: httpbin-gateway
+  etag: '"vaG291S52jc="'
+  fqn: organizations/qa-stack-test/tenants/tier2/workspaces/tier2-ws/gatewaygroups/tier2-gw-group/ingressgateways/httpbin-gateway
+  http:
+  - hostname: httpbin.tetrate.com
+    name: httpbin
+    port: 443
+    routing:
+      rules:
+      - route:
+          host: httpbin/httpbin.httpbin.svc.cluster.local
+          port: 8000
+    tls:
+      mode: SIMPLE
+      secretName: tetrate-cert
+  workloadSelector:
+    labels:
+      app: httpbin-gateway
+    namespace: httpbin
+
+---
+apiVersion: gateway.tsb.tetrate.io/v2
+kind: IngressGateway
+metadata:
+  description: t2-gateway
+  displayName: t2-gateway
+  group: tier2-gw-group
+  name: t2-gateway
+  organization: qa-stack-test
+  resourceVersion: '"vAur29jZSYc="'
+  tenant: tier2
+  workspace: tier2-ws
+spec:
+  description: t2-gateway
+  displayName: t2-gateway
+  etag: '"vAur29jZSYc="'
+  fqn: organizations/qa-stack-test/tenants/tier2/workspaces/tier2-ws/gatewaygroups/tier2-gw-group/ingressgateways/t2-gateway
+  http:
+  - hostname: bookinfo.tetrate.com
+    name: bookinfo-https
+    port: 443
+    routing:
+      rules:
+      - modify:
+          rewrite:
+            uri: /productpage
+        route:
+          host: bookinfo/productpage.bookinfo.svc.cluster.local
+          port: 9080
+    tls:
+      mode: SIMPLE
+      secretName: tetrate-cert
+  workloadSelector:
+    labels:
+      app: bookinfo-gateway
+    namespace: bookinfo
+
+---
+apiVersion: rbac.tsb.tetrate.io/v2
+kind: AccessBindings
+metadata:
+  fqn: organizations/qa-stack-test/tenants/tier2/workspaces/tier2-ws/gatewaygroups/tier2-gw-group/ingressgateways/httpbin-gateway
+spec:
+  allow:
+  - role: rbac/admin
+    subjects:
+    - serviceAccount: admin
+
