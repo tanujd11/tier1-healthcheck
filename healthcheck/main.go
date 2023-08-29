@@ -3,7 +3,9 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -22,20 +24,34 @@ type EndpointStatus struct {
 }
 
 var (
-	statusCache     map[string]EndpointStatus
-	cacheMutex      sync.RWMutex
-	defaultRetries  = 3
-	defaultInterval = 2 * time.Second
-	endpoints       = map[string][]string{
+	statusCache          map[string]EndpointStatus
+	hostBasedStatusCache map[string]map[string]EndpointStatus
+	localHostHealth      map[string]bool
+	cacheMutex           sync.RWMutex
+	hostCacheMutex       sync.RWMutex
+	localHostCacheMutex  sync.RWMutex
+	defaultRetries       = 3
+	defaultInterval      = 2 * time.Second
+	endpoints            = map[string][]string{
 		"eastus":    {"10.160.1.75"},
 		"centralus": {"10.158.0.223"},
 	}
+	regexAfter  = regexp.MustCompile("(.+(\\|\\|))")
+	regexBefore = regexp.MustCompile("::(.*)")
+	regionRegex = map[string]*regexp.Regexp{}
 )
 
 func main() {
 	localRegion := os.Getenv("REGION")
 	retriesEnv := os.Getenv("RETRIES")
 	intervalEnv := os.Getenv("HEALTH_CHECK_INTERVAL")
+	allRegions := []string{}
+
+	for region := range endpoints {
+		allRegions = append(allRegions, region)
+		//compile region regex at start
+		regionRegex[region] = regexp.MustCompile(region)
+	}
 
 	// Parse environment variables or use default values
 	retries := defaultRetries
@@ -61,9 +77,14 @@ func main() {
 
 	// Initialize the cache
 	statusCache = make(map[string]EndpointStatus)
+	hostBasedStatusCache = make(map[string]map[string]EndpointStatus)
+	localHostHealth = make(map[string]bool)
 
 	// Start a goroutine to perform asynchronous health checks
 	go performHealthChecks(localRegion, retries, interval)
+
+	// Start a goroutine to populate host based status
+	go populateHostBasedStatus(localRegion, retries, interval)
 
 	http.HandleFunc("/health/", func(w http.ResponseWriter, r *http.Request) {
 		regions := strings.Split(strings.TrimPrefix(r.URL.Path, "/health/"), "/")
@@ -140,6 +161,73 @@ func main() {
 		}
 	})
 
+	http.HandleFunc("/localhealth/", func(w http.ResponseWriter, r *http.Request) {
+		localHostCacheMutex.RLock()
+		defer localHostCacheMutex.RUnlock()
+		b, err := json.Marshal(localHostHealth)
+		fmt.Println("localHostHealth", localHostHealth)
+		if err != nil {
+			log.Println("error in marshalling healthy endpoints")
+		}
+		w.Write(b)
+	})
+
+	// /endpoints/eastus
+	http.HandleFunc("/endpoints/", func(w http.ResponseWriter, r *http.Request) {
+		regions := strings.Split(strings.TrimPrefix(r.URL.Path, "/endpoints/"), "/")
+		regionsDone := make(map[string]bool)
+		// Check if any endpoint in the requested regions is healthy
+		healthyEndpoints := map[string][]string{}
+		cacheMutex.RLock()
+		for host, status := range hostBasedStatusCache {
+			anyHealthy := false
+			for _, region := range regions {
+				regionsDone[region] = true
+				for _, endpoint := range endpoints[region] {
+					if status[endpoint].Healthy && time.Since(status[endpoint].LastCheckTime) < cachedStatusWindow {
+						log.Printf("endpoint %s found healthy in region %s", endpoint, region)
+						anyHealthy = true
+						if _, ok := healthyEndpoints[host]; !ok {
+							healthyEndpoints[host] = []string{}
+						}
+						healthyEndpoints[host] = append(healthyEndpoints[host], endpoint)
+					}
+				}
+
+				if anyHealthy {
+					break
+				}
+			}
+
+			if !anyHealthy {
+				for _, region := range allRegions {
+					if regionsDone[region] {
+						continue
+					}
+					for _, endpoint := range endpoints[region] {
+						if status[endpoint].Healthy && time.Since(status[endpoint].LastCheckTime) < cachedStatusWindow {
+							log.Printf("endpoint %s found healthy in region %s", endpoint, region)
+							if _, ok := healthyEndpoints[host]; !ok {
+								healthyEndpoints[host] = []string{}
+							}
+							healthyEndpoints[host] = append(healthyEndpoints[host], endpoint)
+						}
+					}
+				}
+			}
+		}
+		cacheMutex.RUnlock()
+
+		log.Println("send healthy endpoints")
+		w.Header().Set("Content-Type", "application/json")
+		b, err := json.Marshal(healthyEndpoints)
+		if err != nil {
+			log.Println("error in marshalling healthy endpoints")
+		}
+		w.Write(b)
+
+	})
+
 	log.Fatal(http.ListenAndServeTLS(":9443", "/go/src/healthcheck/wildcard.crt",
 		"/go/src/healthcheck/wildcard.key", nil))
 }
@@ -174,7 +262,11 @@ func performHealthChecks(localRegion string, retries int, interval time.Duration
 					var url string
 					if region == localRegion {
 						// Local region health check
-						epStatus := getLocalClusterHealth(localRegion)
+						epStatus, localhealth := getLocalClusterHealth(localRegion)
+						localHostCacheMutex.Lock()
+						localHostHealth = localhealth
+						localHostCacheMutex.Unlock()
+
 						cacheMutex.Lock()
 						status := statusCache[endpoint]
 						status.Healthy = epStatus
@@ -229,30 +321,116 @@ func performHealthChecks(localRegion string, retries int, interval time.Duration
 	}
 }
 
-func getLocalClusterHealth(region string) bool {
+func populateHostBasedStatus(localRegion string, retries int, interval time.Duration) {
+	caCert, err := ioutil.ReadFile("/go/src/healthcheck/wildcard-ca.crt")
+	if err != nil {
+		log.Fatalf("Failed to read CA certificate: %v", err)
+	}
+
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+
+	tlsConfig := &tls.Config{
+		//RootCAs: caCertPool,
+		InsecureSkipVerify: true,
+	}
+
+	client := http.Client{
+		Timeout: 3 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+	}
+
+	for {
+		// Perform health checks for each endpoint asynchronously
+		for region, endpoints := range endpoints {
+			go func(region string, endpoints []string) {
+				for _, endpoint := range endpoints {
+					// Remote region health check
+					url := fmt.Sprintf("https://%s:9443/localhealth/", endpoint)
+
+					// Perform retries
+					for i := 0; i <= retries; i++ {
+						resp, err := client.Get(url)
+						log.Println("GET RESPONSE", resp, err)
+
+						// Update the status in the cache
+						hostCacheMutex.Lock()
+						if err == nil && resp.StatusCode == http.StatusOK {
+							bodyBytes, err := io.ReadAll(resp.Body)
+							if err != nil {
+								log.Println("error in reading body", err)
+								i++
+								continue
+							}
+							bodyString := string(bodyBytes)
+							hostStatus := &map[string]bool{}
+							err = json.Unmarshal([]byte(bodyString), hostStatus)
+							if err != nil {
+								log.Println("error in unmarshaling body", err)
+								i++
+								continue
+							}
+							for host, healthy := range *hostStatus {
+								if _, ok := hostBasedStatusCache[host]; !ok {
+									hostBasedStatusCache[host] = make(map[string]EndpointStatus)
+								}
+								hostBasedStatus := hostBasedStatusCache[host]
+								hostBasedStatus[endpoint] = EndpointStatus{
+									Healthy:       healthy,
+									Retries:       0,
+									LastCheckTime: time.Now(),
+								}
+								hostBasedStatusCache[host] = hostBasedStatus
+							}
+							log.Println(bodyString)
+							log.Println("Ok")
+							// populate hostBasedHealthStatus
+						}
+						hostCacheMutex.Unlock()
+
+					}
+				}
+			}(region, endpoints)
+		}
+
+		// Perform health checks at the specified interval
+		log.Printf("Perform health checks at the specified interval %v", interval)
+		time.Sleep(interval)
+	}
+}
+
+// (TODO)optimize this function
+func getLocalClusterHealth(region string) (bool, map[string]bool) {
 	resp, err := http.Get("http://localhost:15000/clusters")
 	if err != nil {
 		fmt.Println("Error sending GET request:", err)
-		return false
+		return false, nil
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		fmt.Println("Error reading response body:", err)
-		return false
+		return false, nil
 	}
 	lines := strings.Split(string(body), "\n")
-
-	re := regexp.MustCompile(region)
+	resp.Body.Close()
+	hostStatus := make(map[string]bool)
 
 	count := 0
 	for _, line := range lines {
-		if re.MatchString(line) {
-			fmt.Println(line)
+		if regionRegex[region].MatchString(line) {
+			if regexAfter.MatchString(line) && regexBefore.MatchString(line) {
+				line = string(regexAfter.ReplaceAll([]byte(line), []byte("")))
+				line = string(regexBefore.ReplaceAll([]byte(line), []byte("")))
+				fmt.Println(line)
+				hostStatus[line] = true
+			}
 			count++
 		}
 	}
 	fmt.Println("Number of lines with both matches:", count)
-	return count != 0
+	return count != 0, hostStatus
 }

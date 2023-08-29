@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: externaldns
+  namespace: eastus
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: externaldns
+  namespace: eastus
+spec:
+  selector:
+    matchLabels:
+      app: externaldns
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: externaldns
+    spec:
+      serviceAccountName: externaldns
+      containers:
+      - name: externaldns
+        image: registry.k8s.io/external-dns/external-dns:v0.13.5
+        args:
+        - --source=service
+        - --source=ingress
+        - --source=crd
+        - --crd-source-apiversion=externaldns.k8s.io/v1alpha1
+        - --crd-source-kind=DNSEndpoint
+        - --domain-filter=tetrate.com
+        - --provider=azure-private-dns
+        - --azure-resource-group=hosted-cp-azure.qa-stack-test.aks-e-t2-i1
+        - --azure-subscription-id=6c342c9d-7cdb-4875-be75-e26fdbc478bc
+        - --log-level=debug
+        - --namespace=eastus
+        - --interval=5s
+        volumeMounts:
+        - name: azure-config-file
+          mountPath: /etc/kubernetes
+          readOnly: true
+      volumes:
+      - name: azure-config-file
+        secret:
+          secretName: azure-config-file
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dnsservice
+  namespace: eastus
+spec:
+  selector:
+    matchLabels:
+      app: dnsservice
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: dnsservice
+    spec:
+      serviceAccountName: externaldns
+      containers:
+      - name: dnsservice
+        image: t1failovergw.azurecr.io/dnsservice:tanuj-test-4
+        env:
+        - name: PRIORITY
+          value: eastus
+        - name: HEALTH_CHECK_SVC_ENDPOINT
+          value: "tier1-gateway.t1-bookinfo.svc.cluster.local:9443"
+        - name: EXTERNAL_DNS_NAMESPACE
+          value: eastus
+        - name: DNS_TTL
+          value: "1"
