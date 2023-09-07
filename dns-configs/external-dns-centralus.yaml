@@ -1,0 +1,208 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: externaldns
+  namespace: centralus
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: externaldns
+rules:
+- apiGroups: [""]
+  resources: ["services","endpoints","pods"]
+  verbs: ["get","watch","list"]
+- apiGroups: ["extensions","networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get","watch","list"]
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "watch", "list", ]
+- apiGroups: ["externaldns.k8s.io"]
+  resources: ["dnsendpoints"]
+  verbs: ["*"]
+- apiGroups: ["externaldns.k8s.io"]
+  resources: ["dnsendpoints/status"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: externaldns-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: externaldns
+subjects:
+- kind: ServiceAccount
+  name: externaldns
+  namespace: centralus
+- kind: ServiceAccount
+  name: externaldns
+  namespace: eastus
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: externaldns
+  namespace: centralus
+spec:
+  selector:
+    matchLabels:
+      app: externaldns
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: externaldns
+    spec:
+      serviceAccountName: externaldns
+      containers:
+      - name: externaldns
+        image: registry.k8s.io/external-dns/external-dns:v0.13.5
+        args:
+        - --source=service
+        - --source=ingress
+        - --source=crd
+        - --crd-source-apiversion=externaldns.k8s.io/v1alpha1
+        - --crd-source-kind=DNSEndpoint
+        - --domain-filter=tetrate.com
+        - --provider=azure-private-dns
+        - --azure-resource-group=hosted-cp-azure.qa-stack-test.aks-e-t1-i1
+        - --azure-subscription-id=6c342c9d-7cdb-4875-be75-e26fdbc478bc
+        - --log-level=debug
+        - --namespace=centralus
+        - --interval=5s
+        - --policy=upsert-only
+        volumeMounts:
+        - name: azure-config-file
+          mountPath: /etc/kubernetes
+          readOnly: true
+      volumes:
+      - name: azure-config-file
+        secret:
+          secretName: azure-config-file
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dnsservice
+  namespace: centralus
+spec:
+  selector:
+    matchLabels:
+      app: dnsservice
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: dnsservice
+    spec:
+      serviceAccountName: externaldns
+      containers:
+      - name: dnsservice
+        image: t1failovergw.azurecr.io/dnsservice:tanuj-test-9
+        env:
+        - name: PRIORITY
+          value: centralus
+        - name: HEALTH_CHECK_SVC_ENDPOINT
+          value: "tier1-gateway.t1-bookinfo.svc.cluster.local:9443"
+        - name: EXTERNAL_DNS_NAMESPACE
+          value: centralus
+        - name: DNS_TTL
+          value: "10"
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.5.0
+    api-approved.kubernetes.io: "https://github.com/kubernetes-sigs/external-dns/pull/2007"
+  creationTimestamp: null
+  name: dnsendpoints.externaldns.k8s.io
+spec:
+  group: externaldns.k8s.io
+  names:
+    kind: DNSEndpoint
+    listKind: DNSEndpointList
+    plural: dnsendpoints
+    singular: dnsendpoint
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: DNSEndpointSpec defines the desired state of DNSEndpoint
+            properties:
+              endpoints:
+                items:
+                  description: Endpoint is a high-level way of a connection between a service and an IP
+                  properties:
+                    dnsName:
+                      description: The hostname of the DNS record
+                      type: string
+                    labels:
+                      additionalProperties:
+                        type: string
+                      description: Labels stores labels defined for the Endpoint
+                      type: object
+                    providerSpecific:
+                      description: ProviderSpecific stores provider specific config
+                      items:
+                        description: ProviderSpecificProperty holds the name and value of a configuration which is specific to individual DNS providers
+                        properties:
+                          name:
+                            type: string
+                          value:
+                            type: string
+                        type: object
+                      type: array
+                    recordTTL:
+                      description: TTL for the record
+                      format: int64
+                      type: integer
+                    recordType:
+                      description: RecordType type of record, e.g. CNAME, A, SRV, TXT etc
+                      type: string
+                    setIdentifier:
+                      description: Identifier to distinguish multiple records with the same name and type (e.g. Route53 records with routing policies other than 'simple')
+                      type: string
+                    targets:
+                      description: The targets the DNS record points to
+                      items:
+                        type: string
+                      type: array
+                  type: object
+                type: array
+            type: object
+          status:
+            description: DNSEndpointStatus defines the observed state of DNSEndpoint
+            properties:
+              observedGeneration:
+                description: The generation observed by the external-dns controller.
+                format: int64
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: []
+  storedVersions: []
