@@ -5,6 +5,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	ctrlClient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -19,6 +20,13 @@ func getBaseDNSEndpointObj(name string, namespace string) *unstructured.Unstruct
 	})
 
 	return u
+}
+
+func GetDnsEndpoint(client ctrlClient.Client, namespace, name string) error {
+	ctx := context.Background()
+	u := getBaseDNSEndpointObj(name, namespace)
+	err := client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, u)
+	return err
 }
 
 func CreateDnsEndpoint(client ctrlClient.Client, namespace, name string) error {

@@ -49,17 +49,13 @@ func main() {
 
 	cfg, err := config.GetConfig()
 	if err != nil {
-		fmt.Printf("Error getting in-cluster config: %v", err)
-		os.Exit(1)
+		log.Fatalf("Error getting in-cluster config: %v", err)
 	}
 
 	kubeClient, err := ctrlClient.New(cfg, ctrlClient.Options{})
 	if err != nil {
-		fmt.Printf("Error creating client: %v", err)
-		os.Exit(1)
+		log.Fatalf("Error creating client: %v", err)
 	}
-
-	dnsendpoint.CreateDnsEndpoint(kubeClient, extDNSNamespace, extDNSObjName)
 
 	if intervalEnv != "" {
 		intervalDuration, err := time.ParseDuration(intervalEnv)
@@ -79,6 +75,7 @@ func main() {
 	}
 
 	numberOfContinousErrors := 0
+	healthyEndpointsHash = ""
 	for {
 		resp, err := client.Get(url)
 		log.Println("GET RESPONSE", resp, err)
@@ -102,11 +99,27 @@ func main() {
 			continue
 		}
 
+		if healthyEndpointsHash == "" {
+			err = dnsendpoint.GetDnsEndpoint(kubeClient, extDNSNamespace, extDNSObjName)
+			if err != nil {
+				fmt.Println(err)
+				err = dnsendpoint.CreateDnsEndpoint(kubeClient, extDNSNamespace, extDNSObjName)
+				if err != nil {
+					log.Printf("error in creating dns endpoint resource: %v", err)
+					time.Sleep(interval)
+					continue
+
+				}
+			}
+
+		}
 		healthyEndpointsHash = calculateHash(b)
 		fetchedHealthyEndpoints := map[string][]string{}
 		err = json.Unmarshal(b, &fetchedHealthyEndpoints)
 		if err != nil {
-			log.Println("error unmarshalling json", err)
+			log.Printf("error unmarshalling json: %v", err)
+			time.Sleep(interval)
+			continue
 		}
 		resp.Body.Close()
 

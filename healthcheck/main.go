@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	xcp "github.com/tetrateio/xcp/api/core/v2"
 )
 
 type EndpointStatus struct {
@@ -24,34 +25,37 @@ type EndpointStatus struct {
 }
 
 var (
-	statusCache          map[string]EndpointStatus
-	hostBasedStatusCache map[string]map[string]EndpointStatus
-	localHostHealth      map[string]bool
-	cacheMutex           sync.RWMutex
-	hostCacheMutex       sync.RWMutex
-	localHostCacheMutex  sync.RWMutex
-	defaultRetries       = 3
-	defaultInterval      = 2 * time.Second
-	endpoints            = map[string][]string{
-		"eastus":    {"10.160.1.75"},
-		"centralus": {"10.158.0.223"},
-	}
+	statusCache           map[string]EndpointStatus
+	hostBasedStatusCache  map[string]map[string]EndpointStatus
+	localHostHealth       map[string]bool
+	cacheMutex            sync.RWMutex
+	hostCacheMutex        sync.RWMutex
+	localHostCacheMutex   sync.RWMutex
+	endpointsMutex        sync.RWMutex
+	defaultRetries        = 3
+	defaultInterval       = 2 * time.Second
+	endpoints             map[string][]string
+	tier1GatewaySelector  string
+	tier1GatewayNamespace string
+	xcpEdgeDebugEndpoint  string
+
+	// endpoints            = map[string][]string{
+	// 	"eastus":    {"10.160.1.75"},
+	// 	"centralus": {"10.158.0.223"},
+	// }
 	regexAfter  = regexp.MustCompile("(.+(\\|\\|))")
 	regexBefore = regexp.MustCompile("::(.*)")
 	regionRegex = map[string]*regexp.Regexp{}
+	allRegions  = []string{}
 )
 
 func main() {
 	localRegion := os.Getenv("REGION")
 	retriesEnv := os.Getenv("RETRIES")
 	intervalEnv := os.Getenv("HEALTH_CHECK_INTERVAL")
-	allRegions := []string{}
-
-	for region := range endpoints {
-		allRegions = append(allRegions, region)
-		//compile region regex at start
-		regionRegex[region] = regexp.MustCompile(region)
-	}
+	xcpEdgeDebugEndpoint = os.Getenv("XCP_EDGE_DEBUG_ENDPOINT")
+	tier1GatewaySelector = os.Getenv("TIER1_GATEWAY_SELECTOR")
+	tier1GatewayNamespace = os.Getenv("TIER1_GATEWAY_NAMESPACE")
 
 	// Parse environment variables or use default values
 	retries := defaultRetries
@@ -79,6 +83,9 @@ func main() {
 	statusCache = make(map[string]EndpointStatus)
 	hostBasedStatusCache = make(map[string]map[string]EndpointStatus)
 	localHostHealth = make(map[string]bool)
+
+	// Start a goroutine to populate tier1 endpoints
+	go populateTier1Endpoints()
 
 	// Start a goroutine to perform asynchronous health checks
 	go performHealthChecks(localRegion, retries, interval)
@@ -119,6 +126,7 @@ func main() {
 		anyHealthy := false
 		cacheMutex.RLock()
 		for _, region := range regionsTobeChecked {
+			endpointsMutex.RLock()
 			for _, endpoint := range endpoints[region] {
 				status, ok := statusCache[endpoint]
 				if ok && status.Healthy && time.Since(status.LastCheckTime) < cachedStatusWindow {
@@ -127,6 +135,7 @@ func main() {
 					break
 				}
 			}
+			endpointsMutex.RUnlock()
 		}
 		cacheMutex.RUnlock()
 
@@ -183,6 +192,7 @@ func main() {
 			anyHealthy := false
 			for _, region := range regions {
 				regionsDone[region] = true
+				endpointsMutex.RLock()
 				for _, endpoint := range endpoints[region] {
 					if status[endpoint].Healthy && time.Since(status[endpoint].LastCheckTime) < cachedStatusWindow {
 						log.Printf("endpoint %s found healthy in region %s", endpoint, region)
@@ -193,6 +203,7 @@ func main() {
 						healthyEndpoints[host] = append(healthyEndpoints[host], endpoint)
 					}
 				}
+				endpointsMutex.RUnlock()
 
 				if anyHealthy {
 					break
@@ -200,6 +211,7 @@ func main() {
 			}
 
 			if !anyHealthy {
+				endpointsMutex.RLock()
 				for _, region := range allRegions {
 					if regionsDone[region] {
 						continue
@@ -213,6 +225,7 @@ func main() {
 							healthyEndpoints[host] = append(healthyEndpoints[host], endpoint)
 						}
 					}
+					endpointsMutex.RUnlock()
 				}
 			}
 		}
@@ -233,7 +246,7 @@ func main() {
 }
 
 func performHealthChecks(localRegion string, retries int, interval time.Duration) {
-	caCert, err := ioutil.ReadFile("/go/src/healthcheck/wildcard-ca.crt")
+	caCert, err := os.ReadFile("/go/src/healthcheck/wildcard-ca.crt")
 	if err != nil {
 		log.Fatalf("Failed to read CA certificate: %v", err)
 	}
@@ -255,6 +268,7 @@ func performHealthChecks(localRegion string, retries int, interval time.Duration
 
 	for {
 		// Perform health checks for each endpoint asynchronously
+		endpointsMutex.RLock()
 		for region, endpoints := range endpoints {
 			go func(region string, endpoints []string) {
 				for _, endpoint := range endpoints {
@@ -314,6 +328,7 @@ func performHealthChecks(localRegion string, retries int, interval time.Duration
 				}
 			}(region, endpoints)
 		}
+		endpointsMutex.RUnlock()
 
 		// Perform health checks at the specified interval
 		log.Printf("Perform health checks at the specified interval %v", interval)
@@ -322,7 +337,7 @@ func performHealthChecks(localRegion string, retries int, interval time.Duration
 }
 
 func populateHostBasedStatus(localRegion string, retries int, interval time.Duration) {
-	caCert, err := ioutil.ReadFile("/go/src/healthcheck/wildcard-ca.crt")
+	caCert, err := os.ReadFile("/go/src/healthcheck/wildcard-ca.crt")
 	if err != nil {
 		log.Fatalf("Failed to read CA certificate: %v", err)
 	}
@@ -344,6 +359,7 @@ func populateHostBasedStatus(localRegion string, retries int, interval time.Dura
 
 	for {
 		// Perform health checks for each endpoint asynchronously
+		endpointsMutex.RLock()
 		for region, endpoints := range endpoints {
 			go func(region string, endpoints []string) {
 				for _, endpoint := range endpoints {
@@ -366,7 +382,7 @@ func populateHostBasedStatus(localRegion string, retries int, interval time.Dura
 							}
 							bodyString := string(bodyBytes)
 							hostStatus := &map[string]bool{}
-							err = json.Unmarshal([]byte(bodyString), hostStatus)
+							err = json.Unmarshal(bodyBytes, hostStatus)
 							if err != nil {
 								log.Println("error in unmarshaling body", err)
 								i++
@@ -395,6 +411,7 @@ func populateHostBasedStatus(localRegion string, retries int, interval time.Dura
 			}(region, endpoints)
 		}
 
+		endpointsMutex.RUnlock()
 		// Perform health checks at the specified interval
 		log.Printf("Perform health checks at the specified interval %v", interval)
 		time.Sleep(interval)
@@ -410,7 +427,7 @@ func getLocalClusterHealth(region string) (bool, map[string]bool) {
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		fmt.Println("Error reading response body:", err)
 		return false, nil
@@ -421,6 +438,7 @@ func getLocalClusterHealth(region string) (bool, map[string]bool) {
 
 	count := 0
 	for _, line := range lines {
+		endpointsMutex.RLock()
 		if regionRegex[region].MatchString(line) {
 			if regexAfter.MatchString(line) && regexBefore.MatchString(line) {
 				line = string(regexAfter.ReplaceAll([]byte(line), []byte("")))
@@ -430,7 +448,57 @@ func getLocalClusterHealth(region string) (bool, map[string]bool) {
 			}
 			count++
 		}
+		endpointsMutex.RUnlock()
 	}
 	fmt.Println("Number of lines with both matches:", count)
 	return count != 0, hostStatus
+}
+
+func populateTier1Endpoints() {
+	for {
+		resp, err := http.Get(xcpEdgeDebugEndpoint + "/debug/clusters")
+		if err != nil {
+			fmt.Println(fmt.Sprintf("Error sending GET request: %s", err.Error()))
+		}
+		defer resp.Body.Close()
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			fmt.Println(fmt.Sprintf("Error reading response body: %s", err.Error()))
+		}
+
+		xcpClusters := []xcp.Cluster{}
+		err = json.Unmarshal(body, &xcpClusters)
+		if err != nil {
+			fmt.Println(fmt.Sprintf("Error unmarshalling body: %s", err.Error()))
+		}
+
+		endpointsMutex.Lock()
+		defer endpointsMutex.Unlock()
+
+		for _, cluster := range xcpClusters {
+			for _, ns := range cluster.GetGwHostNamespaces() {
+				if ns.GetName() == tier1GatewayNamespace {
+					for _, svc := range ns.GetServices() {
+						for k, v := range svc.GetSelector() {
+							if k+":"+v == tier1GatewaySelector {
+								region := cluster.GetState().GetDiscoveredLocality().GetRegion()
+								if region == "" {
+									continue
+								}
+
+								if _, ok := regionRegex[region]; !ok {
+									regionRegex[region] = regexp.MustCompile(region)
+									allRegions = append(allRegions, region)
+								}
+								endpoints[region] = append(endpoints[region], svc.GetKubernetesExternalAddresses()...)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		time.Sleep(30 * time.Second)
+	}
 }
