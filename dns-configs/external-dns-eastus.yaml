@@ -37,6 +37,7 @@ spec:
         - --log-level=debug
         - --namespace=eastus
         - --interval=5s
+        - --policy=upsert-only
         volumeMounts:
         - name: azure-config-file
           mountPath: /etc/kubernetes
@@ -65,7 +66,7 @@ spec:
       serviceAccountName: externaldns
       containers:
       - name: dnsservice
-        image: t1failovergw.azurecr.io/dnsservice:tanuj-test-4
+        image: t1failovergw.azurecr.io/dnsservice:tanuj-test-9
         env:
         - name: PRIORITY
           value: eastus
@@ -74,4 +75,4 @@ spec:
         - name: EXTERNAL_DNS_NAMESPACE
           value: eastus
         - name: DNS_TTL
-          value: "1"
+          value: "10"
